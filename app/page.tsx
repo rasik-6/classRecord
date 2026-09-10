@@ -336,7 +336,7 @@ export default function Home() {
             ))}
           </ul>
           {videos.length === 0 && (
-            <p className="empty-note">No videos stashed yet — add your first one above.</p>
+            <p className="empty-note">No videos stashed yet — add your first one above over here.</p>
           )}
         </section>
       </main>
