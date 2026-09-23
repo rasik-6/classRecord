@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { supabase } from '../lib/supabaseClient';
 
 interface WorkoutClass {
@@ -9,7 +9,7 @@ interface WorkoutClass {
   date: string;
   details: string;
   image_url: string | null;
-  reference_url: string | null;
+  reference_urls: string[];
   created_at: string;
 }
 
@@ -31,8 +31,17 @@ export default function Home() {
   const [classDate, setClassDate] = useState('');
   const [classDetails, setClassDetails] = useState('');
   const [classImage, setClassImage] = useState<File | null>(null);
-  const [classReferenceUrl, setClassReferenceUrl] = useState('');
   const [classSubmitting, setClassSubmitting] = useState(false);
+  const classDetailsRef = useRef<HTMLTextAreaElement>(null);
+
+  function autoResize(el: HTMLTextAreaElement | null) {
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }
+
+  const [pendingReferenceUrl, setPendingReferenceUrl] = useState('');
+  const [pendingReferenceUrls, setPendingReferenceUrls] = useState<string[]>([]);
 
   const [videoTitle, setVideoTitle] = useState('');
   const [videoFile, setVideoFile] = useState<File | null>(null);
@@ -54,7 +63,12 @@ export default function Home() {
     if (error) {
       console.error('Error loading classes:', error);
     } else {
-      setClasses(data || []);
+      setClasses(
+        (data || []).map((c) => ({
+          ...c,
+          reference_urls: c.reference_urls || [],
+        }))
+      );
     }
     setLoading(false);
   }
@@ -72,11 +86,27 @@ export default function Home() {
     }
   }
 
+  function addPendingReferenceUrl() {
+    const trimmed = pendingReferenceUrl.trim();
+    if (!trimmed) return;
+    setPendingReferenceUrls([...pendingReferenceUrls, trimmed]);
+    setPendingReferenceUrl('');
+  }
+
+  function removePendingReferenceUrl(index: number) {
+    setPendingReferenceUrls(pendingReferenceUrls.filter((_, i) => i !== index));
+  }
+
   async function handleClassSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!classTitle.trim()) return;
 
     setClassSubmitting(true);
+
+    // catch a link typed but not yet added with the "Add link" button
+    const finalReferenceUrls = [...pendingReferenceUrls];
+    const strayUrl = pendingReferenceUrl.trim();
+    if (strayUrl) finalReferenceUrls.push(strayUrl);
 
     let imageUrl: string | null = null;
 
@@ -107,7 +137,7 @@ export default function Home() {
       date: classDate.trim(),
       details: classDetails.trim(),
       image_url: imageUrl,
-      reference_url: classReferenceUrl.trim() || null,
+      reference_urls: finalReferenceUrls,
     });
 
     if (insertError) {
@@ -118,7 +148,8 @@ export default function Home() {
       setClassDate('');
       setClassDetails('');
       setClassImage(null);
-      setClassReferenceUrl('');
+      setPendingReferenceUrl('');
+      setPendingReferenceUrls([]);
       const imageInput = document.getElementById('class-image-input') as HTMLInputElement | null;
       if (imageInput) imageInput.value = '';
       loadClasses();
@@ -236,17 +267,48 @@ export default function Home() {
               />
             </div>
             <textarea
+              ref={classDetailsRef}
               rows={3}
               placeholder="What happens in this class? Format, length, who it's for..."
               value={classDetails}
-              onChange={(e) => setClassDetails(e.target.value)}
+              onChange={(e) => {
+                setClassDetails(e.target.value);
+                autoResize(e.target);
+              }}
             />
-            <input
-              type="url"
-              placeholder="YouTube reference link (optional) — video you're improvising from"
-              value={classReferenceUrl}
-              onChange={(e) => setClassReferenceUrl(e.target.value)}
-            />
+
+            <div className="link-adder">
+              <div className="field-row">
+                <input
+                  type="url"
+                  placeholder="YouTube reference link — video you're improvising from"
+                  value={pendingReferenceUrl}
+                  onChange={(e) => setPendingReferenceUrl(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      addPendingReferenceUrl();
+                    }
+                  }}
+                />
+                <button type="button" onClick={addPendingReferenceUrl}>
+                  Add link
+                </button>
+              </div>
+              {pendingReferenceUrls.length > 0 && (
+                <ul className="pending-link-list">
+                  {pendingReferenceUrls.map((url, i) => (
+                    <li key={i}>
+                      <span>{url}</span>
+                      <button type="button" onClick={() => removePendingReferenceUrl(i)}>
+                        ✕
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
             <label className="file-label">
               Reference photo (optional)
               <input
@@ -271,10 +333,20 @@ export default function Home() {
                   {c.image_url && (
                     <img className="entry-image" src={c.image_url} alt={c.title} />
                   )}
-                  {c.reference_url && (
-                    <a className="entry-link" href={c.reference_url} target="_blank" rel="noopener noreferrer">
-                      Reference video ↗
-                    </a>
+                  {c.reference_urls && c.reference_urls.length > 0 && (
+                    <div className="reference-links">
+                      {c.reference_urls.map((url, i) => (
+
+                        <a key={i}
+                          className="entry-link"
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          Reference video {c.reference_urls.length > 1 ? i + 1 : ''} ↗
+                        </a>
+                      ))}
+                    </div>
                   )}
                 </div>
                 <button className="remove-btn" onClick={() => removeClass(c.id)}>
@@ -336,10 +408,10 @@ export default function Home() {
             ))}
           </ul>
           {videos.length === 0 && (
-            <p className="empty-note">No videos stashed yet — add your first one above over here.</p>
+            <p className="empty-note">No videos stashed yet — add your first one above.</p>
           )}
         </section>
-      </main>
+      </main >
     </>
   );
 }
